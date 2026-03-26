@@ -4,8 +4,23 @@ const cors = require("cors");
 const app = express();
 const PORT = 4000;
 
-app.use(cors());
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"]
+}));
+
 app.use(express.json());
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
 
 let latestEspPayload = null;
 let currentTotalmAh = 142.0;
@@ -39,6 +54,30 @@ function signalLevelFromRSSI(rssi) {
   if (rssi > -55) return "Excelent";
   if (rssi > -67) return "Bun";
   return "Slab";
+}
+
+function logIncomingEspData(raw) {
+  const lRaw = Number(raw.lRaw ?? 0);
+  const tRaw = Number(raw.tRaw ?? 0);
+  const vRaw = Number(raw.vRaw ?? 0);
+  const iRaw = Number(raw.iRaw ?? 0);
+
+  const parts = [
+    `LDR=${lRaw}`,
+    `NTC=${tRaw}`,
+    `V=${vRaw.toFixed(2)}V`,
+    `I=${iRaw.toFixed(1)}mA`,
+  ];
+
+  if (typeof raw.btnNext !== "undefined") {
+    parts.push(`BTN_NEXT=${raw.btnNext}`);
+  }
+
+  if (typeof raw.btnPrev !== "undefined") {
+    parts.push(`BTN_PREV=${raw.btnPrev}`);
+  }
+
+  pushIoLog(parts.join(", "));
 }
 
 function buildResponseFromEsp(raw) {
@@ -76,27 +115,11 @@ function buildResponseFromEsp(raw) {
       ? Number(raw.cpuLoad.toFixed(1))
       : randomBetween(12, 24, 1);
 
-  const ssid = raw.ssid || "ESP32-C3";
-  const ip = raw.ip || "192.168.1.55";
-  const mac = raw.mac || "ESP32-C3";
+  const ssid = raw.ssid || "--";
+  const ip = raw.ip || "--";
+  const mac = raw.mac || "--";
   const connected =
     typeof raw.connected === "boolean" ? raw.connected : true;
-
-  const messageParts = [
-    `LDR=${lRaw}`,
-    `NTC=${tRaw}`,
-    `V=${voltageValue}V`,
-    `I=${currentNowValue}mA`,
-  ];
-
-  if (typeof raw.btnNext !== "undefined") {
-    messageParts.push(`BTN_NEXT=${raw.btnNext}`);
-  }
-  if (typeof raw.btnPrev !== "undefined") {
-    messageParts.push(`BTN_PREV=${raw.btnPrev}`);
-  }
-
-  pushIoLog(messageParts.join(", "));
 
   return {
     timestamp: generateTimestamp(),
@@ -180,17 +203,6 @@ function buildFallbackResponse() {
     100
   );
 
-  ioHistory.unshift({
-    timestamp: generateTimestamp(),
-    message: `IO2=${Math.random() > 0.5 ? 1 : 0}, IO3=${
-      Math.random() > 0.5 ? 1 : 0
-    }, IO4=${Math.random() > 0.5 ? 1 : 0}`,
-  });
-
-  if (ioHistory.length > 20) {
-    ioHistory = ioHistory.slice(0, 20);
-  }
-
   return {
     timestamp: generateTimestamp(),
 
@@ -208,9 +220,9 @@ function buildFallbackResponse() {
 
     wireless: {
       connected: true,
-      ssid: "ESP32_LAB",
-      ip: "192.168.1.55",
-      mac: "A4:C1:38:7B:92:10",
+      ssid: "--",
+      ip: "--",
+      mac: "--",
       rssi: {
         value: rssi,
         unit: "dBm",
@@ -275,6 +287,7 @@ app.post("/api/esp-update", (req, res) => {
   }
 
   latestEspPayload = req.body;
+  logIncomingEspData(req.body);
 
   console.log("ESP UPDATE RECEIVED:");
   console.log(JSON.stringify(latestEspPayload, null, 2));

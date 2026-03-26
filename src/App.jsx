@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import { buildApiBase, DEFAULT_BACKEND_IP } from "./config";
 
 const HISTORY_POINTS = 30;
 const SAMPLE_INTERVAL = 1000;
@@ -134,6 +135,9 @@ function LiveTickerChart({ values, color, minValue, maxValue, darkMode }) {
 
 function App() {
   const [darkMode, setDarkMode] = useState(false);
+  const [backendIp, setBackendIp] = useState(
+  localStorage.getItem("backendIp") || DEFAULT_BACKEND_IP
+);
 
   const [temperatureData, setTemperatureData] = useState(
     makeSeries(HISTORY_POINTS, 24.2, 0.7, 1)
@@ -170,7 +174,7 @@ function App() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const response = await fetch("http://192.168.0.121:4000/api/data");
+        const response = await fetch(`${buildApiBase(backendIp)}/api/data`);
         const data = await response.json();
 
         if (data.wireless) setWireless(data.wireless);
@@ -200,7 +204,7 @@ function App() {
     }, SAMPLE_INTERVAL);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [backendIp]);
 
   const tempMin = Math.min(...temperatureData).toFixed(1);
   const tempMax = Math.max(...temperatureData).toFixed(1);
@@ -252,6 +256,17 @@ function App() {
     if (rssiValue >= -75) return "#f59e0b";
     return "#ef4444";
   })();
+
+  const handleChangeIp = () => {
+    const newIp = prompt("Introdu IP backend:", backendIp);
+    if (!newIp) return;
+
+    const cleanedIp = newIp.trim();
+    if (cleanedIp) {
+      setBackendIp(cleanedIp);
+      localStorage.setItem("backendIp", cleanedIp);
+    }
+  };
 
   return (
     <div className={darkMode ? "app dark" : "app light"}>
@@ -542,8 +557,19 @@ function App() {
         </section>
       </div>
 
-      <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
+      <button
+        className="theme-toggle"
+        onClick={() => setDarkMode(!darkMode)}
+      >
         {darkMode ? "Light Mode" : "Dark Mode"}
+      </button>
+
+      <button
+        className="ip-toggle"
+        onClick={handleChangeIp}
+        title="Schimbă IP backend"
+      >
+        IP: {backendIp}
       </button>
     </div>
   );

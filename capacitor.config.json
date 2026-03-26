@@ -1,0 +1,5 @@
+{
+  "appId": "com.example.esp32dashboard",
+  "appName": "ESP32 Dashboard",
+  "webDir": "dist"
+}
