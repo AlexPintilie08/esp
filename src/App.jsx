@@ -29,29 +29,22 @@ function getNiceScale(min, max, step = 5) {
   return { niceMin, niceMax, ticks };
 }
 
-function LiveTickerChart({
-  values,
-  color,
-  minValue,
-  maxValue,
-  darkMode,
-}) {
+function LiveTickerChart({ values, color, minValue, maxValue, darkMode }) {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
   const animationRef = useRef(null);
 
-  const previousValuesRef = useRef(values);
   const currentValuesRef = useRef(values);
   const transitionStartRef = useRef(performance.now());
 
   useEffect(() => {
-    previousValuesRef.current = currentValuesRef.current;
     currentValuesRef.current = values;
     transitionStartRef.current = performance.now();
 
     const draw = (now) => {
       const canvas = canvasRef.current;
       const wrap = wrapRef.current;
+
       if (!canvas || !wrap) {
         animationRef.current = requestAnimationFrame(draw);
         return;
@@ -79,7 +72,6 @@ function LiveTickerChart({
       );
 
       const curr = currentValuesRef.current;
-
       const stepX = width / (HISTORY_POINTS - 1);
       const shiftX = stepX * progress;
 
@@ -91,51 +83,45 @@ function LiveTickerChart({
       const toY = (value) =>
         topPad + (1 - (value - minValue) / range) * usableHeight;
 
-      const drawLine = (series, offsetX) => {
-        ctx.beginPath();
-
-        for (let i = 0; i < series.length; i++) {
-          const x = i * stepX - offsetX;
-          const y = toY(series[i]);
-
-          if (i === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            const prevX = (i - 1) * stepX - offsetX;
-            const prevY = toY(series[i - 1]);
-            const midX = (prevX + x) / 2;
-
-            ctx.bezierCurveTo(midX, prevY, midX, y, x, y);
-          }
-        }
-
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.stroke();
-
-        const lastIndex = series.length - 1;
-        const lastX = lastIndex * stepX - offsetX;
-        const lastY = toY(series[lastIndex]);
-
-        ctx.beginPath();
-        ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
-      };
-
       const bg = darkMode ? "rgba(255,255,255,0.04)" : "rgba(43,103,119,0.06)";
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, width, height);
 
-      drawLine(curr, shiftX);
+      ctx.beginPath();
+
+      for (let i = 0; i < curr.length; i++) {
+        const x = i * stepX - shiftX;
+        const y = toY(curr[i]);
+
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          const prevX = (i - 1) * stepX - shiftX;
+          const prevY = toY(curr[i - 1]);
+          const midX = (prevX + x) / 2;
+          ctx.bezierCurveTo(midX, prevY, midX, y, x, y);
+        }
+      }
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.stroke();
+
+      const lastIndex = curr.length - 1;
+      const lastX = lastIndex * stepX - shiftX;
+      const lastY = toY(curr[lastIndex]);
+
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
 
       animationRef.current = requestAnimationFrame(draw);
     };
 
     animationRef.current = requestAnimationFrame(draw);
-
     return () => cancelAnimationFrame(animationRef.current);
   }, [values, color, minValue, maxValue, darkMode]);
 
@@ -184,11 +170,11 @@ function App() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const response = await fetch("http://localhost:4000/api/data");
+        const response = await fetch("http://192.168.0.121:4000/api/data");
         const data = await response.json();
 
         if (data.wireless) setWireless(data.wireless);
-        if (data.ioLog) setIoLog(data.ioLog.slice(-20));
+        if (data.ioLog) setIoLog(data.ioLog.slice(0, 5));
 
         if (data.system?.cpuLoad) setCpuLoad(data.system.cpuLoad);
 
@@ -224,13 +210,13 @@ function App() {
   const tempScale = getNiceScale(
     Math.min(...temperatureData),
     Math.max(...temperatureData),
-    5
+    2
   );
 
   const lightScale = getNiceScale(
     Math.min(...lightData),
     Math.max(...lightData),
-    100
+    50
   );
 
   const tempChartMin = useMemo(
@@ -253,13 +239,18 @@ function App() {
     [lightData]
   );
 
+  const rssiValue = wireless?.rssi?.value ?? -100;
+
   const signalPercent = (() => {
-    const rssi = wireless?.rssi?.value ?? -100;
+    if (rssiValue >= -50) return 100;
+    if (rssiValue <= -90) return 10;
+    return Math.round(((rssiValue + 90) / 40) * 90 + 10);
+  })();
 
-    if (rssi >= -50) return 100;
-    if (rssi <= -90) return 10;
-
-    return Math.round(((rssi + 90) / 40) * 90 + 10);
+  const signalColor = (() => {
+    if (rssiValue >= -60) return "#22c55e";
+    if (rssiValue >= -75) return "#f59e0b";
+    return "#ef4444";
   })();
 
   return (
@@ -267,16 +258,24 @@ function App() {
       <div className="dashboard">
         <h1>ESP32 Dashboard</h1>
 
-        <section className="level">
+        <section className="level level-top">
           <div className="panel panel-large graph-panel">
-            <div className="graph-top-left">
-              <span className="graph-small-label">max</span>
-              <span className="graph-small-value">{tempMax} °C</span>
-            </div>
+            <div className="graph-live-block">
+              <div className="graph-live-value">
+                <span className="live-number">{temperatureLive.toFixed(1)}</span>
+                <span className="live-unit">°C</span>
+              </div>
 
-            <div className="graph-live-value">
-              <span className="live-number">{temperatureLive.toFixed(1)}</span>
-              <span className="live-unit">°C</span>
+              <div className="graph-live-meta">
+                <div className="graph-meta-line">
+                  <span className="graph-small-label">max</span>
+                  <span className="graph-small-value">{tempMax} °C</span>
+                </div>
+                <div className="graph-meta-line">
+                  <span className="graph-small-label">min</span>
+                  <span className="graph-small-value">{tempMin} °C</span>
+                </div>
+              </div>
             </div>
 
             <div className="graph-area">
@@ -299,27 +298,29 @@ function App() {
             </div>
 
             <div className="graph-bottom">
-              <div className="graph-bottom-left">
-                <span className="graph-small-label">min</span>
-                <span className="graph-small-value">{tempMin} °C</span>
-                <span className="graph-small-label live-under-min">
-                  temperatura live
-                </span>
-              </div>
-
-              <div className="graph-bottom-right"></div>
+              <span className="graph-small-label live-under-min">
+                temperatura live
+              </span>
             </div>
           </div>
 
           <div className="panel panel-large graph-panel">
-            <div className="graph-top-left">
-              <span className="graph-small-label">max</span>
-              <span className="graph-small-value">{lightMax} lx</span>
-            </div>
+            <div className="graph-live-block">
+              <div className="graph-live-value">
+                <span className="live-number">{lightLive}</span>
+                <span className="live-unit">lx</span>
+              </div>
 
-            <div className="graph-live-value">
-              <span className="live-number">{lightLive}</span>
-              <span className="live-unit">lx</span>
+              <div className="graph-live-meta">
+                <div className="graph-meta-line">
+                  <span className="graph-small-label">max</span>
+                  <span className="graph-small-value">{lightMax} lx</span>
+                </div>
+                <div className="graph-meta-line">
+                  <span className="graph-small-label">min</span>
+                  <span className="graph-small-value">{lightMin} lx</span>
+                </div>
+              </div>
             </div>
 
             <div className="graph-area">
@@ -342,40 +343,38 @@ function App() {
             </div>
 
             <div className="graph-bottom">
-              <div className="graph-bottom-left">
-                <span className="graph-small-label">min</span>
-                <span className="graph-small-value">{lightMin} lx</span>
-                <span className="graph-small-label live-under-min">
-                  lumina live
-                </span>
-              </div>
-
-              <div className="graph-bottom-right"></div>
+              <span className="graph-small-label live-under-min">
+                lumina live
+              </span>
             </div>
           </div>
         </section>
 
-        <section className="level">
-          <div className="panel panel-wide log-panel">
+        <section className="level level-auto">
+          <div className="panel log-panel">
             <div className="panel-header panel-header-log">
               <div className="panel-title-group">
                 <span className="panel-kicker">Monitorizare</span>
-                <span className="panel-title">Log în timp real</span>
+                <span className="panel-title">Log I/O în timp real</span>
               </div>
 
-              <span className="log-badge">LIVE</span>
+              <span className="log-badge">I/O</span>
             </div>
 
             <div className="log-container">
-              {ioLog.map((line, index) => (
-                <div key={index} className="log-line">
-                  [{line.timestamp}] {line.message}
-                </div>
-              ))}
+              {ioLog.length === 0 ? (
+                <div className="empty-log">Nu există încă date în log.</div>
+              ) : (
+                ioLog.map((line, index) => (
+                  <div key={index} className="log-line">
+                    [{line.timestamp}] {line.message}
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
-          <div className="panel panel-wide network-panel">
+          <div className="panel network-panel">
             <div className="panel-header panel-header-log">
               <div className="panel-title-group">
                 <span className="panel-kicker">Conectivitate</span>
@@ -385,7 +384,7 @@ function App() {
               <span className="log-badge">Wi-Fi</span>
             </div>
 
-            <div className="network-content">
+            <div className="network-simple">
               <div className="network-row">
                 <span>Status</span>
                 <strong>{wireless.connected ? "Conectat" : "Deconectat"}</strong>
@@ -417,18 +416,28 @@ function App() {
                 <span>Semnal</span>
                 <strong>{wireless.signalLevel}</strong>
               </div>
+            </div>
+
+            <div className="signal-wrap">
+              <div className="signal-row">
+                <span>Putere semnal</span>
+                <strong>{signalPercent}%</strong>
+              </div>
 
               <div className="signal-bar">
                 <div
                   className="signal-fill"
-                  style={{ width: `${signalPercent}%` }}
+                  style={{
+                    width: `${signalPercent}%`,
+                    background: signalColor,
+                  }}
                 ></div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="level">
+        <section className="level level-flex">
           <div className="panel stat-panel">
             <div className="panel-header panel-header-log">
               <div className="panel-title-group">
@@ -471,7 +480,7 @@ function App() {
           </div>
         </section>
 
-        <section className="level">
+        <section className="level level-flex">
           <div className="panel stat-panel">
             <div className="panel-header panel-header-log">
               <div className="panel-title-group">
@@ -533,10 +542,7 @@ function App() {
         </section>
       </div>
 
-      <button
-        className="theme-toggle"
-        onClick={() => setDarkMode(!darkMode)}
-      >
+      <button className="theme-toggle" onClick={() => setDarkMode(!darkMode)}>
         {darkMode ? "Light Mode" : "Dark Mode"}
       </button>
     </div>

@@ -1,55 +1,105 @@
-/* BASE */
-.app {
-  width: 100%;
-  height: 100vh;
-  padding: 14px 14px 56px 14px;
-  overflow: hidden;
-  transition: background-color 0.25s ease, color 0.25s ease;
+:root {
+  --page-h: 100vh;
+  --page-pad-x: 14px;
+  --page-pad-top: 14px;
+  --page-pad-bottom: 56px;
+  --gap: clamp(8px, 1vh, 12px);
+
+  --h1-size: clamp(20px, 2.3vh, 24px);
+
+  --top-card-h: clamp(240px, 33vh, 320px);
+
+  --live-number-size: clamp(24px, 3.6vh, 34px);
+  --stat-number-size: clamp(22px, 3.2vh, 30px);
+  --mini-value-size: clamp(14px, 2vh, 17px);
+
+  --panel-radius: clamp(18px, 2vh, 24px);
+  --panel-pad: clamp(10px, 1.4vh, 14px);
+
+  --graph-top: clamp(38px, 5vh, 44px);
+  --graph-bottom: clamp(38px, 5vh, 48px);
+  --graph-right: clamp(145px, 18vw, 170px);
+  --graph-left: 20px;
+  --scale-width: 42px;
+  --canvas-left: 48px;
 }
 
-/* LIGHT */
-.app.light {
-  background: #f2f2f2;
-  color: #23424c;
-}
-
-/* DARK */
-.app.dark {
-  background: #1b262c;
-  color: #e3eef1;
-}
-
-/* LAYOUT */
-.dashboard {
+html,
+body,
+#root {
   width: 100%;
   height: 100%;
   margin: 0;
 }
 
-h1 {
-  margin: 0 0 12px 0;
-  font-size: 24px;
-  font-weight: 700;
-  color: inherit;
+.app {
+  width: 100%;
+  height: var(--page-h);
+  padding: var(--page-pad-top) var(--page-pad-x) var(--page-pad-bottom)
+    var(--page-pad-x);
+  overflow: hidden;
+  transition: background-color 0.25s ease, color 0.25s ease;
+  box-sizing: border-box;
 }
 
-/* GRID */
+.app.light {
+  background: #f2f2f2;
+  color: #23424c;
+}
+
+.app.dark {
+  background: #1b262c;
+  color: #e3eef1;
+}
+
+.dashboard {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  box-sizing: border-box;
+}
+
+h1 {
+  margin: 0;
+  font-size: var(--h1-size);
+  font-weight: 700;
+  color: inherit;
+  line-height: 1.1;
+  flex: 0 0 auto;
+}
+
 .level {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--gap);
+  min-height: 0;
 }
 
-/* PANEL */
+.level-top {
+  flex: 0 0 var(--top-card-h);
+}
+
+.level-auto {
+  flex: 0 0 auto;
+}
+
+.level-flex {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
 .panel {
-  min-height: 110px;
-  border-radius: 24px;
+  min-height: 0;
+  height: 100%;
+  border-radius: var(--panel-radius);
   background: inherit;
   box-shadow:
     0 8px 20px rgba(0, 0, 0, 0.05),
     inset 0 1px 0 rgba(255, 255, 255, 0.65);
   backdrop-filter: blur(10px);
+  box-sizing: border-box;
 }
 
 .graph-panel {
@@ -60,7 +110,6 @@ h1 {
   background: rgba(255, 255, 255, 0.03);
 }
 
-/* PANEL DARK */
 .app.dark .panel {
   background: rgba(255, 255, 255, 0.05);
   box-shadow:
@@ -68,81 +117,98 @@ h1 {
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-/* SIZES */
-.panel-large {
-  min-height: 245px;
-}
-
-.panel-wide {
-  min-height: 150px;
-}
-
-/* GRAPH PANEL */
+/* GRAPH */
 .graph-panel {
   position: relative;
   padding: 16px;
   overflow: hidden;
 }
 
-/* TOP LEFT (MAX) */
-.graph-top-left {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.graph-small-label {
-  font-size: 11px;
-  opacity: 0.6;
-  color: inherit;
-}
-
-.graph-small-value {
-  font-size: 12px;
-  font-weight: 600;
-  color: inherit;
-}
-
-/* LIVE VALUE (RIGHT BIG NUMBER) */
-.graph-live-value {
+.graph-live-block {
   position: absolute;
   top: 50%;
   right: 16px;
   transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: clamp(6px, 1vh, 10px);
+  width: clamp(110px, 12vw, 135px);
+}
+
+.graph-live-value {
   display: flex;
   align-items: baseline;
   gap: 6px;
 }
 
 .live-number {
-  font-size: 32px;
+  font-size: var(--live-number-size);
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.05em;
 }
 
 .live-unit {
-  font-size: 14px;
+  font-size: clamp(12px, 1.5vh, 14px);
   font-weight: 600;
   opacity: 0.8;
 }
 
-/* GRAPH AREA */
-.graph-area {
-  position: absolute;
-  top: 40px;
-  left: 22px;
-  right: 145px;
-  bottom: 46px;
+.graph-live-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
 }
 
-/* CANVAS */
+.graph-meta-line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.graph-small-label {
+  font-size: clamp(10px, 1.2vh, 11px);
+  opacity: 0.6;
+  color: inherit;
+}
+
+.graph-small-value {
+  font-size: clamp(11px, 1.3vh, 12px);
+  font-weight: 600;
+  color: inherit;
+}
+
+.graph-area {
+  position: absolute;
+  top: var(--graph-top);
+  left: var(--graph-left);
+  right: var(--graph-right);
+  bottom: var(--graph-bottom);
+}
+
+.y-scale {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--scale-width);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  font-size: clamp(10px, 1.2vh, 11px);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .chart-canvas-wrap {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  left: var(--canvas-left);
+  right: 0;
+  top: 0;
+  bottom: 0;
 }
 
 .chart-canvas-wrap canvas {
@@ -151,107 +217,47 @@ h1 {
   height: 100%;
 }
 
-/* SCALE */
-.y-scale {
-  position: absolute;
-  left: -32px;
-  top: 0;
-  bottom: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  font-size: 11px;
-  opacity: 0.55;
-}
-
-/* BOTTOM */
 .graph-bottom {
   position: absolute;
   left: 16px;
   right: 16px;
   bottom: 14px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: end;
-}
-
-.graph-bottom-left,
-.graph-bottom-right {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.graph-bottom-right {
-  align-items: flex-end;
-}
-
-.graph-title {
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1;
 }
 
 .live-under-min {
   margin-top: 4px;
 }
 
-/* BUTTON */
-.theme-toggle {
-  position: fixed;
-  left: 14px;
-  bottom: 14px;
-  padding: 10px 14px;
-  border: none;
-  border-radius: 18px;
-  background: #ffffff;
-  color: #2b6777;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.08),
-    0 1px 2px rgba(0, 0, 0, 0.06);
-  z-index: 20;
-}
-
-/* BUTTON DARK */
-.app.dark .theme-toggle {
-  background: #24353b;
-  color: #e3eef1;
-  box-shadow:
-    0 6px 18px rgba(0, 0, 0, 0.4),
-    0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.theme-toggle:active {
-  transform: scale(0.96);
-}
-
-/* LOG PANEL */
-.log-panel {
+/* GENERIC PANELS */
+.log-panel,
+.network-panel,
+.stat-panel {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 14px;
+  padding: var(--panel-pad);
 }
 
-/* Generic header */
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-  font-weight: 600;
+.log-panel {
+  height: auto;
+  min-height: 170px;
 }
 
-/* HEADER LOG PREMIUM */
+.network-panel {
+  height: auto;
+  min-height: 170px;
+}
+
 .panel-header-log {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: clamp(6px, 1vh, 10px);
   min-width: 0;
+  flex: 0 0 auto;
 }
 
 .panel-title-group {
@@ -262,21 +268,20 @@ h1 {
 }
 
 .panel-kicker {
-  font-size: 10px;
+  font-size: clamp(9px, 1vh, 10px);
   opacity: 0.5;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .panel-title {
-  font-size: 15px;
+  font-size: clamp(13px, 1.6vh, 15px);
   font-weight: 600;
   line-height: 1.15;
 }
 
-/* badge */
 .log-badge {
-  font-size: 9px;
+  font-size: clamp(8px, 0.95vh, 9px);
   padding: 4px 8px;
   border-radius: 999px;
   background: #2b6777;
@@ -285,10 +290,11 @@ h1 {
   flex-shrink: 0;
 }
 
-/* log box */
+/* LOG */
 .log-container {
-  flex: 1;
-  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
   border-radius: 14px;
   padding: 10px;
   background: transparent;
@@ -300,7 +306,7 @@ h1 {
 }
 
 .log-line {
-  font-size: 12px;
+  font-size: clamp(11px, 1.25vh, 12px);
   padding: 4px 0;
   opacity: 0.85;
   border-bottom: 1px solid rgba(43, 103, 119, 0.08);
@@ -313,48 +319,56 @@ h1 {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-body {
-  user-select: none;
+.empty-log {
+  font-size: clamp(11px, 1.25vh, 12px);
+  opacity: 0.65;
+  padding-top: 6px;
 }
 
-/* NETWORK PANEL */
-.network-panel {
+/* NETWORK SIMPLE */
+.network-simple {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  padding: 14px;
-}
-
-.network-content {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  overflow: hidden;
+  gap: 6px;
 }
 
 .network-row {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 13px;
+  font-size: clamp(12px, 1.3vh, 13px);
   white-space: nowrap;
-  overflow: hidden;
 }
 
 .network-row span {
   opacity: 0.6;
-  flex-shrink: 0;
 }
 
 .network-row strong {
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* SIGNAL BAR */
-.signal-bar {
+.signal-wrap {
   margin-top: 10px;
-  height: 8px;
+  flex: 0 0 auto;
+}
+
+.signal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: clamp(11px, 1.25vh, 12px);
+}
+
+.signal-row span {
+  opacity: 0.7;
+}
+
+.signal-bar {
+  height: 10px;
   border-radius: 999px;
   overflow: hidden;
   background: rgba(43, 103, 119, 0.12);
@@ -367,20 +381,10 @@ body {
 .signal-fill {
   height: 100%;
   border-radius: 999px;
-  background: #2b6777;
-  transition: width 0.4s ease;
+  transition: width 0.4s ease, background-color 0.4s ease;
 }
 
-/* STAT PANELS */
-.stat-panel {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  min-height: 150px;
-  overflow: hidden;
-  padding: 14px;
-}
-
+/* STATS */
 .stat-main {
   display: flex;
   align-items: baseline;
@@ -389,27 +393,27 @@ body {
 }
 
 .stat-number {
-  font-size: 30px;
+  font-size: var(--stat-number-size);
   font-weight: 700;
   line-height: 1;
 }
 
 .stat-unit {
-  font-size: 14px;
+  font-size: clamp(12px, 1.5vh, 14px);
   font-weight: 600;
   opacity: 0.75;
 }
 
 .stat-subtext {
-  margin-top: 10px;
-  font-size: 12px;
+  margin-top: clamp(6px, 1vh, 10px);
+  font-size: clamp(11px, 1.25vh, 12px);
   opacity: 0.65;
 }
 
 .dual-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: clamp(8px, 1.2vh, 12px);
   margin-top: 12px;
 }
 
@@ -420,12 +424,12 @@ body {
 }
 
 .mini-label {
-  font-size: 11px;
+  font-size: clamp(10px, 1.15vh, 11px);
   opacity: 0.6;
 }
 
 .mini-value {
-  font-size: 17px;
+  font-size: var(--mini-value-size);
   font-weight: 700;
 }
 
@@ -433,7 +437,7 @@ body {
   display: flex;
   justify-content: space-between;
   margin-top: 12px;
-  font-size: 13px;
+  font-size: clamp(12px, 1.35vh, 13px);
 }
 
 .progress-bar {
@@ -459,25 +463,93 @@ body {
   background: #52ab98;
 }
 
-/* responsive */
-@media (max-width: 1100px) {
-  .app {
-    height: auto;
-    min-height: 100vh;
-    overflow: auto;
-  }
+.theme-toggle {
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 18px;
+  background: #ffffff;
+  color: #2b6777;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.06);
+  z-index: 20;
+}
 
+.app.dark .theme-toggle {
+  background: #24353b;
+  color: #e3eef1;
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.4),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.theme-toggle:active {
+  transform: scale(0.96);
+}
+
+/* FULLSCREEN / SHORT HEIGHT */
+@media (max-height: 900px) {
+  :root {
+    --top-card-h: 30vh;
+    --graph-right: 160px;
+  }
+}
+
+@media (max-height: 820px) {
+  :root {
+    --top-card-h: 28vh;
+    --live-number-size: 28px;
+    --stat-number-size: 25px;
+    --mini-value-size: 15px;
+    --page-pad-bottom: 48px;
+  }
+}
+
+@media (max-height: 760px) {
+  :root {
+    --top-card-h: 26vh;
+    --h1-size: 20px;
+    --gap: 8px;
+    --panel-pad: 10px;
+    --graph-right: 150px;
+    --live-number-size: 24px;
+    --stat-number-size: 22px;
+  }
+}
+
+/* MOBILE */
+@media (max-width: 1100px) {
   .level {
     grid-template-columns: 1fr;
   }
 
-  .panel-large,
-  .panel-wide,
-  .stat-panel {
-    min-height: 180px;
+  .level-top,
+  .level-auto,
+  .level-flex {
+    flex: 0 0 auto;
   }
 
-  .graph-area {
-    right: 125px;
+  .panel,
+  .log-panel,
+  .network-panel,
+  .stat-panel {
+    height: auto;
+    min-height: 220px;
+  }
+
+  .app {
+    height: auto;
+    min-height: 100vh;
+    overflow-y: auto;
+  }
+
+  .dashboard {
+    height: auto;
   }
 }
