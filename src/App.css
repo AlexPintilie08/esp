@@ -1692,3 +1692,33 @@ h1 {
   margin-top: 10px;
   text-align: center;
 }
+
+/* --- FIX PENTRU SCROLL VERTICAL --- */
+html, body {
+  overflow-y: auto !important; 
+  overflow-x: hidden; /* Previne scroll-ul stânga-dreapta accidental */
+}
+
+.app, .dashboard {
+  height: auto !important;
+  min-height: 100vh;
+  overflow-y: visible !important;
+}
+
+/* --- DESIGN SCROLLBAR (Să arate modern, nu clasic de Windows) --- */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #8899a6;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #2b6777; /* Se face un pic mai închis când pui mouse-ul */
+}
