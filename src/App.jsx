@@ -63,8 +63,9 @@ function App() {
         {!isBondDetail ? (
           <DashboardShell
             data={data}
+            backendIp={backendIp}
             error={error}
-            darkMode={darkMode}
+            darkMode={darkMode} //  Adaugat asta
             temperatureHistory={temperatureHistory}
             currentHistory={currentHistory}
             activeCard={activeCard}

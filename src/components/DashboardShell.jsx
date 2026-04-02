@@ -4,6 +4,7 @@ import LogsCard from "./dashboard/LogsCard";
 import NetworkCard from "./dashboard/NetworkCard";
 import MetricCard from "./dashboard/MetricCard";
 import ModulesCard from "./dashboard/ModulesCard";
+import { useEspMotion } from "../hooks/useEspMotion";
 
 const HISTORY_POINTS = 30;
 
@@ -95,6 +96,7 @@ function CompactNavCard({ label, isActive, onClick }) {
 
 export default function DashboardShell({
   data,
+  backendIp,
   error,
   darkMode,
   temperatureHistory = [],
@@ -126,8 +128,13 @@ export default function DashboardShell({
   const batteryLifeH = toNumber(telemetry?.batteryLifeH);
   const cpuLoadPercent = toNumber(telemetry?.cpuLoadPercent);
   //ADAUGAT ACUM 
-  const roll = toNumber(telemetry?.roll);
-  const pitch = toNumber(telemetry?.pitch);
+  // Chemăm hook-ul de WebSocket pentru datele de mișcare 100Hz
+  const motion = useEspMotion(backendIp); 
+
+  // În loc să luăm roll/pitch din telemetry, le luăm din motion (WebSocket)
+  const roll = motion.roll;
+  const pitch = motion.pitch;
+  const accel = motion.accel; 
 
   const wifiOnline = getComponentOnline(components, "wifi");
   const oledOnline = getComponentOnline(components, "oled");
