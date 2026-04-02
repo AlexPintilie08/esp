@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import GraphCard from "./dashboard/GraphCard";
 import LogsCard from "./dashboard/LogsCard";
 import NetworkCard from "./dashboard/NetworkCard";
@@ -51,7 +52,7 @@ function getNiceScale(min, max, step = 5) {
 
   const ticks = [];
   for (let value = niceMin; value <= niceMax; value += step) {
-    ticks.push(value);
+    ticks.push(Number(value.toFixed(1)));
   }
 
   return { niceMin, niceMax, ticks };
@@ -134,7 +135,30 @@ export default function DashboardShell({
   // În loc să luăm roll/pitch din telemetry, le luăm din motion (WebSocket)
   const roll = motion.roll;
   const pitch = motion.pitch;
-  const accel = motion.accel; 
+  const accel = toNumber(telemetry?.accelZ) || 0; 
+
+  // --- LOGICA NOUĂ PENTRU GRAFIC CONTINUU ---
+  const [accelHistory, setAccelHistory] = useState(Array(40).fill(1));
+  
+  // Salvăm mereu ultima valoare într-o "cutie" (ref) ca timer-ul să o poată citi
+  const accelRef = useRef(accel);
+  useEffect(() => {
+    accelRef.current = accel;
+  }, [accel]);
+
+  // Timer-ul care desenează graficul la fiecare 100ms
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAccelHistory(prev => {
+        const next = [...prev, accelRef.current]; //valoarea curentă din cutie
+        if (next.length > 40) next.shift();
+        return next;
+      });
+    }, 100); // 100ms = 10 puncte pe secundă (viteza benzii rulante)
+
+    return () => clearInterval(timer);
+  }, []);
+  // ------------------------------------------
 
   const wifiOnline = getComponentOnline(components, "wifi");
   const oledOnline = getComponentOnline(components, "oled");
@@ -184,7 +208,14 @@ export default function DashboardShell({
     : currentFallback;
 
   const tempScale = getNiceScale(tempMin, tempMax, 2);
-  const currentScale = getNiceScale(currentMin, currentMax, 0.2);
+
+  const currentRange = currentMax - currentMin;
+  let cStep = 10;                 // Pas normal (dacă variația e mică)
+  if (currentRange > 100) cStep = 50;  // Pas mediu
+  if (currentRange > 300) cStep = 100; // Pas mare pentru variații extreme (ca în poza ta)
+  if (currentRange > 1000) cStep = 500;
+  
+  const currentScale = getNiceScale(currentMin, currentMax, 10);
 
   const tempChartMin = Math.floor((tempMin - 1) * 10) / 10;
   const tempChartMax = Math.ceil((tempMax + 1) * 10) / 10;
@@ -218,10 +249,11 @@ export default function DashboardShell({
         liveUnit="°C"
         minLabel={formatValue(tempMin, 1, "°C")}
         maxLabel={formatValue(tempMax, 1, "°C")}
-        footerLabel={ntcOnline ? "temperatura live" : "sensor NTC offline"}
+        footerLabel={ntcOnline ? "temperatura live (NTC)" : "sensor NTC offline"}
         values={safeTempHistory}
         ticks={tempScale.ticks}
-        color={darkMode ? "#c8d8e4" : "#2b6777"}
+        // Culoarea liniei graficului se schimbă și ea
+        color={temperature < 22 ? "#00d2ff" : temperature < 30 ? "#f59e0b" : "#ef4444"}
         minValue={tempChartMin}
         maxValue={tempChartMax}
         darkMode={darkMode}
@@ -229,6 +261,39 @@ export default function DashboardShell({
         onToggle={() => openCard("temperature")}
         detailContent={
           <div className="detail-grid">
+            
+            {/* --- REPREZENTARE GRAFICĂ DE TIP GRADIENT (CERINȚA TASK 2) --- */}
+            <div className="detail-item" style={{ gridColumn: '1 / -1', marginBottom: '15px' }}>
+              <span className="detail-label" style={{ marginBottom: '8px', display: 'block' }}>
+                 Gradient Temperatură NTC
+              </span>
+              <div style={{
+                width: '100%',
+                height: '12px',
+                // Aici este gradientul de culoare cerut: Albastru -> Verde -> Galben -> Roșu
+                background: 'linear-gradient(90deg, #00d2ff 0%, #22c55e 30%, #f59e0b 60%, #ef4444 100%)',
+                borderRadius: '6px',
+                position: 'relative'
+              }}>
+                {/* Cursorul care arată unde este temperatura actuală pe gradient (raportat la 0-50 grade) */}
+                <div style={{
+                  position: 'absolute',
+                  left: `${Math.min(Math.max(((temperature || 0) / 50) * 100, 0), 100)}%`, 
+                  top: '-3px',
+                  width: '4px',
+                  height: '18px',
+                  background: darkMode ? '#ffffff' : '#000000',
+                  borderRadius: '2px',
+                  boxShadow: '0 0 4px rgba(0,0,0,0.5)'
+                }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginTop: '4px' }}>
+                 <span>0°C</span>
+                 <span>50°C</span>
+              </div>
+            </div>
+            {/* ------------------------------------------------------------- */}
+
             <div className="detail-item">
               <span className="detail-label">State</span>
               <strong className="detail-value">{temperatureState}</strong>
@@ -255,7 +320,7 @@ export default function DashboardShell({
       <GraphCard
         title="current"
         liveValue={current !== null ? current.toFixed(2) : "--"}
-        liveUnit="A"
+        liveUnit="mA"
         minLabel={formatValue(currentMin, 2, "mA")}
         maxLabel={formatValue(currentMax, 2, "mA")}
         footerLabel={inaOnline ? "curent live" : "sensor INA219 offline"}
@@ -271,7 +336,7 @@ export default function DashboardShell({
           <div className="detail-grid">
             <div className="detail-item">
               <span className="detail-label">Instant</span>
-              <strong className="detail-value">{formatValue(current, 2, "A")}</strong>
+              <strong className="detail-value">{formatValue(current, 2, "mA")}</strong>
             </div>
             <div className="detail-item">
               <span className="detail-label">Sensor</span>
@@ -281,11 +346,11 @@ export default function DashboardShell({
             </div>
             <div className="detail-item">
               <span className="detail-label">Min</span>
-              <strong className="detail-value">{formatValue(currentMin, 2, "A")}</strong>
+              <strong className="detail-value">{formatValue(currentMin, 2, "mA")}</strong>
             </div>
             <div className="detail-item">
               <span className="detail-label">Max</span>
-              <strong className="detail-value">{formatValue(currentMax, 2, "A")}</strong>
+              <strong className="detail-value">{formatValue(currentMax, 2, "mA")}</strong>
             </div>
           </div>
         }
@@ -354,7 +419,7 @@ export default function DashboardShell({
         miniStats={[
           {
             label: "Current",
-            value: current !== null ? `${current.toFixed(2)} A` : "--",
+            value: current !== null ? `${current.toFixed(2)} mA` : "--",
           },
           {
             label: "Sensor",
@@ -371,7 +436,7 @@ export default function DashboardShell({
             </div>
             <div className="detail-item">
               <span className="detail-label">Current</span>
-              <strong className="detail-value">{formatValue(current, 2, "A")}</strong>
+              <strong className="detail-value">{formatValue(current, 2, "mA")}</strong>
             </div>
             <div className="detail-item detail-item-wide">
               <span className="detail-label">INA219</span>
@@ -393,7 +458,7 @@ export default function DashboardShell({
         miniStats={[
           {
             label: "Instant",
-            value: current !== null ? `${current.toFixed(2)} A` : "--",
+            value: current !== null ? `${current.toFixed(2)} mA` : "--",
           },
           {
             label: "Total",
@@ -480,10 +545,36 @@ export default function DashboardShell({
             </div>
           </div>
 
-          {/* Afișare Accelerație (Cerință suplimentară) */}
-          <div className="accel-badge">
-            ACCEL: {telemetry?.accel ? telemetry.accel.toFixed(2) : "0.00"} m/s²
-          </div>
+          {/* Afișare Accelerație (Cerință TASK 2) */}
+{/* Afișare Accelerație cu Mini-Grafic (Sparkline) */}
+<div className="accel-container" style={{ marginTop: '20px', marginBottom: '20px', textAlign: 'center' }}>
+  <div className="accel-badge" style={{ 
+    fontSize: '1.2rem', 
+    fontWeight: 'bold', 
+    color: darkMode ? '#00fbff' : '#2b6777',
+    marginBottom: '10px'
+  }}>
+    ACCELERAȚIE: {(accel || 0).toFixed(2)} G
+  </div>
+
+  {/* Graficul SVG */}
+  <div style={{ display: 'inline-block', padding: '5px', background: darkMode ? '#1a262a' : '#f0f4f8', borderRadius: '8px', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.1)' }}>
+    <svg width="200" height="40" style={{ display: 'block' }}>
+      <polyline
+        points={accelHistory.map((val, i) => {
+          const x = (i / 39) * 200; // Lățimea este 200px
+          const y = 40 - (Math.min(val, 3) / 3) * 40; // Scalăm înălțimea (max 3G)
+          return `${x},${y}`;
+        }).join(' ')}
+        fill="none"
+        stroke={darkMode ? "#00fbff" : "#2b6777"}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  </div>
+</div>
         </div>
 
         {isDetailMode && activeCard === "motion" && (
