@@ -3,6 +3,7 @@ const cors = require("cors");
 
 const app = express();
 const PORT = 4000;
+///am adaugat comentariu pt a putea testa push-ul in git
 
 app.use(cors({
   origin: "*",
