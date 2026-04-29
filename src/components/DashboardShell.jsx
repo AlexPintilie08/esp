@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import GraphCard from "./dashboard/GraphCard";
 import LogsCard from "./dashboard/LogsCard";
 import NetworkCard from "./dashboard/NetworkCard";
@@ -17,12 +17,24 @@ function formatValue(value, digits = 1, unit = "") {
   return `${Number(value).toFixed(digits)}${unit}`;
 }
 
+function makeHistory(value = 0) {
+  return Array(HISTORY_POINTS).fill(value);
+}
+
+function pushHistory(prev, value) {
+  const n = Number(value);
+  const safe = Number.isFinite(n) ? n : 0;
+  const next = [...prev, safe];
+  return next.slice(-HISTORY_POINTS);
+}
+
 function normalizeSeries(values, fallback = 0) {
   const safe = [];
   let last = fallback;
 
   for (let i = 0; i < values.length; i += 1) {
-    const value = values[i];
+    const value = Number(values[i]);
+
     if (Number.isFinite(value)) {
       last = value;
       safe.push(value);
@@ -31,7 +43,9 @@ function normalizeSeries(values, fallback = 0) {
     }
   }
 
-  return safe;
+  while (safe.length < HISTORY_POINTS) safe.unshift(fallback);
+
+  return safe.slice(-HISTORY_POINTS);
 }
 
 function getNiceScale(min, max, step = 5) {
@@ -42,6 +56,7 @@ function getNiceScale(min, max, step = 5) {
   const niceMin = Math.floor(safeMin / step) * step;
 
   const ticks = [];
+
   for (let value = niceMin; value <= niceMax; value += step) {
     ticks.push(Number(value.toFixed(1)));
   }
@@ -109,7 +124,6 @@ function EventBadge({ label, active }) {
 
 export default function DashboardShell({
   data,
-  backendIp,
   error,
   darkMode,
   temperatureHistory = [],
@@ -120,71 +134,119 @@ export default function DashboardShell({
   activeCard,
   setActiveCard,
 }) {
+  const [liveHistories, setLiveHistories] = useState({
+    temp: makeHistory(0),
+    current: makeHistory(0),
+    bpm: makeHistory(0),
+    spo2: makeHistory(0),
+    risk: makeHistory(0),
+  });
+
   const openCard = (cardId) => setActiveCard(cardId);
   const closeDetailMode = () => setActiveCard(null);
   const isDetailMode = Boolean(activeCard);
 
-  const health = data?.health || {};
-  const motionData = data?.motion || {};
-  const ai = data?.ai || {};
-  const wireless = data?.wireless || {};
-  const power = data?.power || {};
-  const system = data?.system || {};
+  const isOffline =
+    !data ||
+    data?.wearable?.status === "OFFLINE" ||
+    data?.connection === "offline" ||
+    data?.status === "OFFLINE";
+
+  const health = isOffline ? {} : data?.health || {};
+  const motionData = isOffline ? {} : data?.motion || {};
+  const ai = isOffline ? {} : data?.ai || {};
+  const wireless = isOffline ? {} : data?.wireless || {};
+  const power = isOffline ? {} : data?.power || {};
+  const system = isOffline ? {} : data?.system || {};
   const logs = Array.isArray(data?.logs) ? data.logs.slice(0, 6) : [];
 
-  const temperature = toNumber(health.temperature);
-  const bpm = toNumber(health.bpm);
-  const spo2 = toNumber(health.spo2);
-  const stress = health.stress || "NO DATA";
+  const temperature = isOffline ? null : toNumber(health.temperature);
+  const bpm = isOffline ? null : toNumber(health.bpm);
+  const spo2 = isOffline ? null : toNumber(health.spo2);
+  const stress = isOffline ? "NO DATA" : health.stress || "NO DATA";
 
-  const accX = toNumber(motionData.accX) ?? 0;
-  const accY = toNumber(motionData.accY) ?? 0;
-  const accZ = toNumber(motionData.accZ) ?? 0;
-  const accTotal = toNumber(motionData.accTotal) ?? 0;
+  const accX = isOffline ? 0 : toNumber(motionData.accX) ?? 0;
+  const accY = isOffline ? 0 : toNumber(motionData.accY) ?? 0;
+  const accZ = isOffline ? 0 : toNumber(motionData.accZ) ?? 0;
+  const accTotal = isOffline ? 0 : toNumber(motionData.accTotal) ?? 0;
 
-  const gyroX = toNumber(motionData.gyroX) ?? 0;
-  const gyroY = toNumber(motionData.gyroY) ?? 0;
-  const gyroZ = toNumber(motionData.gyroZ) ?? 0;
+  const gyroX = isOffline ? 0 : toNumber(motionData.gyroX) ?? 0;
+  const gyroY = isOffline ? 0 : toNumber(motionData.gyroY) ?? 0;
+  const gyroZ = isOffline ? 0 : toNumber(motionData.gyroZ) ?? 0;
 
-  const riskScore = toNumber(ai.riskScore);
-  const alert = ai.alert || data?.status || "OFFLINE";
-  const prediction = ai.prediction || "waiting for wearable data";
+  const riskScore = isOffline ? null : toNumber(ai.riskScore);
+  const alert = isOffline ? "OFFLINE" : ai.alert || data?.status || "SAFE";
+  const prediction = isOffline
+    ? "wearable offline"
+    : ai.prediction || "waiting for wearable data";
 
-  const voltage = toNumber(power.voltage);
-  const current = toNumber(power.currentNow);
-  const batteryPercent = toNumber(power.batteryPercent);
-  const batteryLifeH = toNumber(power.estimatedLife);
-  const cpuLoadPercent = toNumber(system.cpuLoad);
+  const voltage = isOffline ? null : toNumber(power.voltage);
+  const current = isOffline ? null : toNumber(power.currentNow);
+  const batteryPercent = isOffline ? null : toNumber(power.batteryPercent);
+  const batteryLifeH = isOffline ? null : toNumber(power.estimatedLife);
+  const cpuLoadPercent = isOffline ? null : toNumber(system.cpuLoad);
 
-  const rssiValue = toNumber(wireless.rssi);
+  const rssiValue = isOffline ? null : toNumber(wireless.rssi);
+
+  useEffect(() => {
+    if (isOffline) {
+      setLiveHistories({
+        temp: makeHistory(0),
+        current: makeHistory(0),
+        bpm: makeHistory(0),
+        spo2: makeHistory(0),
+        risk: makeHistory(0),
+      });
+      return;
+    }
+
+    setLiveHistories((prev) => ({
+      temp: pushHistory(prev.temp, temperature ?? 0),
+      current: pushHistory(prev.current, current ?? 0),
+      bpm: pushHistory(prev.bpm, bpm ?? 0),
+      spo2: pushHistory(prev.spo2, spo2 ?? 0),
+      risk: pushHistory(prev.risk, riskScore ?? 0),
+    }));
+  }, [
+    data?.isoTimestamp,
+    data?.timestamp,
+    isOffline,
+    temperature,
+    current,
+    bpm,
+    spo2,
+    riskScore,
+  ]);
 
   const hub = {
-    ssid: wireless.ssid || "--",
-    ip: wireless.ip || "--",
-    mac: wireless.mac || "--",
-    rssi: wireless.rssi ?? -127,
-    signalLevel: wireless.signalLevel || "Offline",
-    connected: wireless.connected,
+    ssid: isOffline ? "--" : wireless.ssid || "--",
+    ip: isOffline ? "--" : wireless.ip || "--",
+    mac: isOffline ? "--" : wireless.mac || "--",
+    rssi: isOffline ? -127 : wireless.rssi ?? -127,
+    signalLevel: isOffline ? "Offline" : wireless.signalLevel || "Live",
+    connected: !isOffline && Boolean(wireless.connected),
+    connection: isOffline ? "OFFLINE" : data?.connection || "LIVE",
   };
 
   const components = {
-    wifi: { online: Boolean(wireless.connected) },
-    oled: { online: true },
-    ina219: { online: voltage !== null && voltage > 0 },
-    ntc: { online: temperature !== null && temperature > 0 },
-    bmi160: { online: true },
-    max30102: { online: bpm !== null || spo2 !== null },
-    ai: { online: riskScore !== null },
-    motion: { online: true },
+    wifi: { online: !isOffline && Boolean(wireless.connected) },
+    oled: { online: !isOffline },
+    ina219: { online: !isOffline && voltage !== null && voltage > 0 },
+    ntc: { online: !isOffline && temperature !== null && temperature > 0 },
+    bmi160: { online: !isOffline },
+    max30102: { online: !isOffline && (bpm !== null || spo2 !== null) },
+    ai: { online: !isOffline && riskScore !== null },
+    motion: { online: !isOffline },
   };
 
   const oled = {
     page: "--",
-    status: "online",
+    status: isOffline ? "offline" : "online",
+    mode: isOffline ? "OFFLINE" : data?.connection || "LIVE",
   };
 
   const modules = [
-    { name: "wifi", online: Boolean(components.wifi.online) },
+    { name: "wifi/bridge", online: Boolean(components.wifi.online) },
     { name: "oled", online: Boolean(components.oled.online) },
     { name: "ina219", online: Boolean(components.ina219.online) },
     { name: "ntc", online: Boolean(components.ntc.online) },
@@ -193,46 +255,45 @@ export default function DashboardShell({
     { name: "ai", online: Boolean(components.ai.online) },
   ];
 
-  const tempFallback = temperature ?? 0;
-  const currentFallback = current ?? 0;
-  const bpmFallback = bpm ?? 0;
-  const spo2Fallback = spo2 ?? 0;
-  const riskFallback = riskScore ?? 0;
-
   const safeTempHistory = useMemo(() => {
-    const source = temperatureHistory.length
-      ? temperatureHistory
-      : Array(HISTORY_POINTS).fill(tempFallback);
-    return normalizeSeries(source, tempFallback);
-  }, [temperatureHistory, tempFallback]);
+    if (isOffline) return makeHistory(0);
+    return normalizeSeries(
+      liveHistories.temp.length ? liveHistories.temp : temperatureHistory,
+      temperature ?? 0
+    );
+  }, [liveHistories.temp, temperatureHistory, temperature, isOffline]);
 
   const safeCurrentHistory = useMemo(() => {
-    const source = currentHistory.length
-      ? currentHistory
-      : Array(HISTORY_POINTS).fill(currentFallback);
-    return normalizeSeries(source, currentFallback);
-  }, [currentHistory, currentFallback]);
+    if (isOffline) return makeHistory(0);
+    return normalizeSeries(
+      liveHistories.current.length ? liveHistories.current : currentHistory,
+      current ?? 0
+    );
+  }, [liveHistories.current, currentHistory, current, isOffline]);
 
   const safeBpmHistory = useMemo(() => {
-    const source = bpmHistory.length
-      ? bpmHistory
-      : Array(HISTORY_POINTS).fill(bpmFallback);
-    return normalizeSeries(source, bpmFallback);
-  }, [bpmHistory, bpmFallback]);
+    if (isOffline) return makeHistory(0);
+    return normalizeSeries(
+      liveHistories.bpm.length ? liveHistories.bpm : bpmHistory,
+      bpm ?? 0
+    );
+  }, [liveHistories.bpm, bpmHistory, bpm, isOffline]);
 
   const safeSpo2History = useMemo(() => {
-    const source = spo2History.length
-      ? spo2History
-      : Array(HISTORY_POINTS).fill(spo2Fallback);
-    return normalizeSeries(source, spo2Fallback);
-  }, [spo2History, spo2Fallback]);
+    if (isOffline) return makeHistory(0);
+    return normalizeSeries(
+      liveHistories.spo2.length ? liveHistories.spo2 : spo2History,
+      spo2 ?? 0
+    );
+  }, [liveHistories.spo2, spo2History, spo2, isOffline]);
 
   const safeRiskHistory = useMemo(() => {
-    const source = riskHistory.length
-      ? riskHistory
-      : Array(HISTORY_POINTS).fill(riskFallback);
-    return normalizeSeries(source, riskFallback);
-  }, [riskHistory, riskFallback]);
+    if (isOffline) return makeHistory(0);
+    return normalizeSeries(
+      liveHistories.risk.length ? liveHistories.risk : riskHistory,
+      riskScore ?? 0
+    );
+  }, [liveHistories.risk, riskHistory, riskScore, isOffline]);
 
   const tempValues = safeTempHistory.filter((v) => Number.isFinite(v));
   const currentValues = safeCurrentHistory.filter((v) => Number.isFinite(v));
@@ -240,31 +301,27 @@ export default function DashboardShell({
   const spo2Values = safeSpo2History.filter((v) => Number.isFinite(v));
   const riskValues = safeRiskHistory.filter((v) => Number.isFinite(v));
 
-  const tempMin = tempValues.length ? Math.min(...tempValues) : tempFallback;
-  const tempMax = tempValues.length ? Math.max(...tempValues) : tempFallback;
-  const currentMin = currentValues.length
-    ? Math.min(...currentValues)
-    : currentFallback;
-  const currentMax = currentValues.length
-    ? Math.max(...currentValues)
-    : currentFallback;
-  const bpmMin = bpmValues.length ? Math.min(...bpmValues) : bpmFallback;
-  const bpmMax = bpmValues.length ? Math.max(...bpmValues) : bpmFallback;
-  const spo2Min = spo2Values.length ? Math.min(...spo2Values) : spo2Fallback;
-  const spo2Max = spo2Values.length ? Math.max(...spo2Values) : spo2Fallback;
-  const riskMin = riskValues.length ? Math.min(...riskValues) : riskFallback;
-  const riskMax = riskValues.length ? Math.max(...riskValues) : riskFallback;
+  const tempMin = tempValues.length ? Math.min(...tempValues) : temperature ?? 0;
+  const tempMax = tempValues.length ? Math.max(...tempValues) : temperature ?? 0;
+  const currentMin = currentValues.length ? Math.min(...currentValues) : current ?? 0;
+  const currentMax = currentValues.length ? Math.max(...currentValues) : current ?? 0;
+  const bpmMin = bpmValues.length ? Math.min(...bpmValues) : bpm ?? 0;
+  const bpmMax = bpmValues.length ? Math.max(...bpmValues) : bpm ?? 0;
+  const spo2Min = spo2Values.length ? Math.min(...spo2Values) : spo2 ?? 0;
+  const spo2Max = spo2Values.length ? Math.max(...spo2Values) : spo2 ?? 0;
+  const riskMin = riskValues.length ? Math.min(...riskValues) : riskScore ?? 0;
+  const riskMax = riskValues.length ? Math.max(...riskValues) : riskScore ?? 0;
 
-  const tempScale = getNiceScale(tempMin, tempMax, 2);
-  const currentScale = getNiceScale(currentMin, currentMax, 10);
-  const bpmScale = getNiceScale(bpmMin, bpmMax, 10);
-  const spo2Scale = getNiceScale(spo2Min, spo2Max, 2);
-  const riskScale = getNiceScale(riskMin, riskMax, 10);
+  const tempScale = getNiceScale(tempMin, tempMax || 40, 2);
+  const currentScale = getNiceScale(currentMin, currentMax || 10, 10);
+  const bpmScale = getNiceScale(bpmMin, bpmMax || 120, 10);
+  const spo2Scale = getNiceScale(spo2Min || 85, spo2Max || 100, 2);
+  const riskScale = getNiceScale(riskMin, riskMax || 100, 10);
 
-  const tempChartMin = Math.floor((tempMin - 1) * 10) / 10;
-  const tempChartMax = Math.ceil((tempMax + 1) * 10) / 10;
-  const currentChartMin = Math.floor((currentMin - 0.08) * 100) / 100;
-  const currentChartMax = Math.ceil((currentMax + 0.08) * 100) / 100;
+  const tempChartMin = isOffline ? 0 : Math.min(20, Math.floor((tempMin - 1) * 10) / 10);
+  const tempChartMax = isOffline ? 50 : Math.max(42, Math.ceil((tempMax + 1) * 10) / 10);
+  const currentChartMin = isOffline ? 0 : Math.min(0, Math.floor((currentMin - 1) * 100) / 100);
+  const currentChartMax = isOffline ? 100 : Math.max(10, Math.ceil((currentMax + 1) * 100) / 100);
 
   const signalPercent = (() => {
     if (rssiValue === null) return 0;
@@ -281,10 +338,11 @@ export default function DashboardShell({
   })();
 
   const dangerState =
-    motionData.freeFallRisk ||
-    motionData.excessiveRotation ||
-    motionData.noMovement ||
-    alert === "DANGER";
+    !isOffline &&
+    (motionData.freeFallRisk ||
+      motionData.excessiveRotation ||
+      motionData.noMovement ||
+      alert === "DANGER");
 
   const cards = {
     mission: (
@@ -293,14 +351,15 @@ export default function DashboardShell({
         title="Stare parașutist"
         badge={alert}
         mainValue={alert}
-        mainUnit=""
         progress={riskScore ?? 0}
         progressClassName={
           alert === "DANGER"
             ? "danger-fill"
             : alert === "WARNING"
               ? "warning-fill"
-              : "battery-fill"
+              : alert === "OFFLINE"
+                ? "offline-fill"
+                : "battery-fill"
         }
         subtext={prediction}
         expanded={isDetailMode && activeCard === "mission"}
@@ -331,16 +390,21 @@ export default function DashboardShell({
         kicker="Evenimente de zbor"
         title="Parașută & poziție"
         badge="AIR"
-        mainValue={motionData.parachuteOpened ? "OPEN" : "CLOSED"}
-        mainUnit=""
-        progress={motionData.parachuteOpened ? 100 : 0}
+        mainValue={
+          isOffline ? "--" : motionData.parachuteOpened ? "OPEN" : "CLOSED"
+        }
+        progress={!isOffline && motionData.parachuteOpened ? 100 : 0}
         progressClassName={
-          motionData.parachuteOpened ? "battery-fill" : "warning-fill"
+          !isOffline && motionData.parachuteOpened
+            ? "battery-fill"
+            : "warning-fill"
         }
         subtext={
-          motionData.positionChanged
-            ? "poziția parașutistului s-a schimbat"
-            : "poziție stabilă"
+          isOffline
+            ? "wearable offline"
+            : motionData.positionChanged
+              ? "poziția parașutistului s-a schimbat"
+              : "poziție stabilă"
         }
         expanded={isDetailMode && activeCard === "parachute"}
         onToggle={() => openCard("parachute")}
@@ -349,13 +413,17 @@ export default function DashboardShell({
             <div className="detail-item">
               <span className="detail-label">Parașută</span>
               <strong className="detail-value">
-                {motionData.parachuteOpened ? "deschisă" : "nedetectată"}
+                {!isOffline && motionData.parachuteOpened
+                  ? "deschisă"
+                  : "nedetectată"}
               </strong>
             </div>
             <div className="detail-item">
               <span className="detail-label">Poziție</span>
               <strong className="detail-value">
-                {motionData.positionChanged ? "schimbată" : "stabilă"}
+                {!isOffline && motionData.positionChanged
+                  ? "schimbată"
+                  : "stabilă"}
               </strong>
             </div>
             <div className="detail-item">
@@ -377,38 +445,20 @@ export default function DashboardShell({
         minLabel={formatValue(bpmMin, 0, " BPM")}
         maxLabel={formatValue(bpmMax, 0, " BPM")}
         footerLabel={
-          bpm && bpm > 0 ? "MAX30102 puls live" : "pune degetul pe senzor"
+          isOffline
+            ? "wearable offline"
+            : bpm && bpm > 0
+              ? "MAX30102 puls live"
+              : "pune degetul pe senzor"
         }
         values={safeBpmHistory}
         ticks={bpmScale.ticks}
         color="#ef4444"
-        minValue={Math.max(0, bpmMin - 10)}
+        minValue={0}
         maxValue={Math.max(120, bpmMax + 10)}
         darkMode={darkMode}
         expanded={isDetailMode && activeCard === "pulse"}
         onToggle={() => openCard("pulse")}
-        detailContent={
-          <div className="detail-grid">
-            <div className="detail-item">
-              <span className="detail-label">BPM</span>
-              <strong className="detail-value">
-                {formatValue(bpm, 0, " BPM")}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Analiză</span>
-              <strong className="detail-value">
-                {bpm === 0
-                  ? "no signal"
-                  : bpm > 140
-                    ? "puls anormal"
-                    : bpm > 110
-                      ? "stres posibil"
-                      : "normal"}
-              </strong>
-            </div>
-          </div>
-        }
       />
     ),
 
@@ -419,7 +469,7 @@ export default function DashboardShell({
         liveUnit="%"
         minLabel={formatValue(spo2Min, 0, "%")}
         maxLabel={formatValue(spo2Max, 0, "%")}
-        footerLabel="MAX30102 SpO₂ estimat"
+        footerLabel={isOffline ? "wearable offline" : "MAX30102 SpO₂ estimat"}
         values={safeSpo2History}
         ticks={spo2Scale.ticks}
         color="#00d2ff"
@@ -428,26 +478,6 @@ export default function DashboardShell({
         darkMode={darkMode}
         expanded={isDetailMode && activeCard === "spo2"}
         onToggle={() => openCard("spo2")}
-        detailContent={
-          <div className="detail-grid">
-            <div className="detail-item">
-              <span className="detail-label">SpO₂</span>
-              <strong className="detail-value">
-                {formatValue(spo2, 0, "%")}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">State</span>
-              <strong className="detail-value">
-                {spo2 === null || spo2 === 0
-                  ? "no signal"
-                  : spo2 < 94
-                    ? "low oxygen"
-                    : "normal"}
-              </strong>
-            </div>
-          </div>
-        }
       />
     ),
 
@@ -459,50 +489,28 @@ export default function DashboardShell({
         minLabel={formatValue(tempMin, 1, "°C")}
         maxLabel={formatValue(tempMax, 1, "°C")}
         footerLabel={
-          components.ntc.online
-            ? "temperatura live NTC"
-            : "sensor NTC offline"
+          isOffline
+            ? "wearable offline"
+            : components.ntc.online
+              ? "temperatura live NTC"
+              : "sensor NTC offline"
         }
         values={safeTempHistory}
         ticks={tempScale.ticks}
         color={
-          temperature < 35
-            ? "#00d2ff"
-            : temperature < 38
-              ? "#f59e0b"
-              : "#ef4444"
+          temperature === null
+            ? "#8899a6"
+            : temperature < 35
+              ? "#00d2ff"
+              : temperature < 38
+                ? "#f59e0b"
+                : "#ef4444"
         }
         minValue={tempChartMin}
         maxValue={tempChartMax}
         darkMode={darkMode}
         expanded={isDetailMode && activeCard === "temperature"}
         onToggle={() => openCard("temperature")}
-        detailContent={
-          <div className="detail-grid">
-            <div className="detail-item">
-              <span className="detail-label">Nivel stres</span>
-              <strong className="detail-value">{stress}</strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Sensor</span>
-              <strong className="detail-value">
-                {components.ntc.online ? "online" : "offline"}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Min</span>
-              <strong className="detail-value">
-                {formatValue(tempMin, 1, "°C")}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Max</span>
-              <strong className="detail-value">
-                {formatValue(tempMax, 1, "°C")}
-              </strong>
-            </div>
-          </div>
-        }
       />
     ),
 
@@ -517,35 +525,19 @@ export default function DashboardShell({
         values={safeRiskHistory}
         ticks={riskScale.ticks}
         color={
-          riskScore > 65 ? "#ef4444" : riskScore > 35 ? "#f59e0b" : "#22c55e"
+          riskScore === null
+            ? "#8899a6"
+            : riskScore > 65
+              ? "#ef4444"
+              : riskScore > 35
+                ? "#f59e0b"
+                : "#22c55e"
         }
         minValue={0}
         maxValue={100}
         darkMode={darkMode}
         expanded={isDetailMode && activeCard === "risk"}
         onToggle={() => openCard("risk")}
-        detailContent={
-          <div className="detail-grid">
-            <div className="detail-item">
-              <span className="detail-label">Risc accident</span>
-              <strong className="detail-value">
-                {formatValue(riskScore, 0, "%")}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Comportament</span>
-              <strong className="detail-value">{prediction}</strong>
-            </div>
-            <div className="detail-item detail-item-wide">
-              <span className="detail-label">Alertare</span>
-              <strong className="detail-value">
-                {dangerState
-                  ? "trimite alertă instructor / echipă"
-                  : "monitorizare normală"}
-              </strong>
-            </div>
-          </div>
-        }
       />
     ),
 
@@ -564,26 +556,14 @@ export default function DashboardShell({
         </div>
 
         <div className="parachute-events-grid">
-          <EventBadge
-            label="Cădere necontrolată"
-            active={motionData.freeFallRisk}
-          />
-          <EventBadge
-            label="Rotație excesivă"
-            active={motionData.excessiveRotation}
-          />
-          <EventBadge label="Lipsă mișcare" active={motionData.noMovement} />
-          <EventBadge
-            label="Poziție schimbată"
-            active={motionData.positionChanged}
-          />
-          <EventBadge
-            label="Parașută deschisă"
-            active={motionData.parachuteOpened}
-          />
+          <EventBadge label="Cădere necontrolată" active={!isOffline && motionData.freeFallRisk} />
+          <EventBadge label="Rotație excesivă" active={!isOffline && motionData.excessiveRotation} />
+          <EventBadge label="Lipsă mișcare" active={!isOffline && motionData.noMovement} />
+          <EventBadge label="Poziție schimbată" active={!isOffline && motionData.positionChanged} />
+          <EventBadge label="Parașută deschisă" active={!isOffline && motionData.parachuteOpened} />
         </div>
 
-        {isDetailMode && activeCard === "danger" && (
+        {isDetailMode && activeCard === "danger" ? (
           <div className="detail-grid" style={{ marginTop: "16px" }}>
             <div className="detail-item">
               <span className="detail-label">Alert status</span>
@@ -596,7 +576,7 @@ export default function DashboardShell({
               </strong>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     ),
 
@@ -615,9 +595,9 @@ export default function DashboardShell({
         </div>
 
         <div className="motion-bars">
-          <MotionAxisBar label="AX" value={accX} unit="G" maxAbs={3} />
-          <MotionAxisBar label="AY" value={accY} unit="G" maxAbs={3} />
-          <MotionAxisBar label="AZ" value={accZ} unit="G" maxAbs={3} />
+          <MotionAxisBar label="AX" value={accX} unit="G" maxAbs={2} />
+          <MotionAxisBar label="AY" value={accY} unit="G" maxAbs={2} />
+          <MotionAxisBar label="AZ" value={accZ} unit="G" maxAbs={2} />
         </div>
 
         <div className="axis-mini-grid">
@@ -637,61 +617,12 @@ export default function DashboardShell({
             GZ <strong>{formatValue(gyroZ, 1, "°/s")}</strong>
           </div>
           <div>
-            Free fall{" "}
-            <strong>{motionData.freeFallRisk ? "YES" : "NO"}</strong>
+            Free fall <strong>{!isOffline && motionData.freeFallRisk ? "YES" : "NO"}</strong>
           </div>
           <div>
-            Rotation{" "}
-            <strong>{motionData.excessiveRotation ? "YES" : "NO"}</strong>
+            Rotation <strong>{!isOffline && motionData.excessiveRotation ? "YES" : "NO"}</strong>
           </div>
         </div>
-
-        {isDetailMode && activeCard === "motion" && (
-          <div className="detail-grid" style={{ marginTop: "16px" }}>
-            <div className="detail-item">
-              <span className="detail-label">Acc X</span>
-              <strong className="detail-value">
-                {formatValue(accX, 2, " G")}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Acc Y</span>
-              <strong className="detail-value">
-                {formatValue(accY, 2, " G")}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Acc Z</span>
-              <strong className="detail-value">
-                {formatValue(accZ, 2, " G")}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Acc Total</span>
-              <strong className="detail-value">
-                {formatValue(accTotal, 2, " G")}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Gyro X</span>
-              <strong className="detail-value">
-                {formatValue(gyroX, 1, "°/s")}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Gyro Y</span>
-              <strong className="detail-value">
-                {formatValue(gyroY, 1, "°/s")}
-              </strong>
-            </div>
-            <div className="detail-item">
-              <span className="detail-label">Gyro Z</span>
-              <strong className="detail-value">
-                {formatValue(gyroZ, 1, "°/s")}
-              </strong>
-            </div>
-          </div>
-        )}
       </div>
     ),
 
@@ -703,7 +634,11 @@ export default function DashboardShell({
         minLabel={formatValue(currentMin, 2, "mA")}
         maxLabel={formatValue(currentMax, 2, "mA")}
         footerLabel={
-          components.ina219.online ? "curent live" : "sensor INA219 offline"
+          isOffline
+            ? "wearable offline"
+            : components.ina219.online
+              ? "curent live"
+              : "sensor INA219 offline"
         }
         values={safeCurrentHistory}
         ticks={currentScale.ticks}
@@ -744,7 +679,7 @@ export default function DashboardShell({
         mainValue={cpuLoadPercent !== null ? cpuLoadPercent.toFixed(0) : "--"}
         mainUnit="%"
         progress={cpuLoadPercent ?? 0}
-        subtext="ESP load estimat în timp real"
+        subtext={isOffline ? "wearable offline" : "ESP load estimat în timp real"}
         expanded={isDetailMode && activeCard === "cpu"}
         onToggle={() => openCard("cpu")}
       />
@@ -830,38 +765,36 @@ export default function DashboardShell({
 
   if (isDetailMode) {
     return (
-      <>
-        <section className="detail-mode-layout">
-          <div className="detail-main-column">
-            <div className="detail-main-toolbar">
-              <button
-                type="button"
-                className="detail-back-button"
-                onClick={closeDetailMode}
-              >
-                Back to mission dashboard
-              </button>
-            </div>
-
-            <div className="detail-main-card">{cards[activeCard]}</div>
+      <section className="detail-mode-layout">
+        <div className="detail-main-column">
+          <div className="detail-main-toolbar">
+            <button
+              type="button"
+              className="detail-back-button"
+              onClick={closeDetailMode}
+            >
+              Back to mission dashboard
+            </button>
           </div>
 
-          <aside className="detail-sidebar">
-            <div className="detail-sidebar-title">Mission Cards</div>
+          <div className="detail-main-card">{cards[activeCard]}</div>
+        </div>
 
-            <div className="detail-sidebar-list">
-              {detailOrder.map((item) => (
-                <CompactNavCard
-                  key={item.id}
-                  label={item.label}
-                  isActive={activeCard === item.id}
-                  onClick={() => openCard(item.id)}
-                />
-              ))}
-            </div>
-          </aside>
-        </section>
-      </>
+        <aside className="detail-sidebar">
+          <div className="detail-sidebar-title">Mission Cards</div>
+
+          <div className="detail-sidebar-list">
+            {detailOrder.map((item) => (
+              <CompactNavCard
+                key={item.id}
+                label={item.label}
+                isActive={activeCard === item.id}
+                onClick={() => openCard(item.id)}
+              />
+            ))}
+          </div>
+        </aside>
+      </section>
     );
   }
 
@@ -892,6 +825,7 @@ export default function DashboardShell({
         {cards.network}
         {cards.cpu}
         {cards.voltage}
+        {cards.current}
         {cards.modules}
         {cards.logs}
       </section>
