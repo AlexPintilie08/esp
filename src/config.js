@@ -1,4 +1,4 @@
-export const DEFAULT_BACKEND_IP = "192.168.0.104";
+export const DEFAULT_BACKEND_IP = "192.168.0.113:4000";
 
 export function buildApiBase(ipOrUrl = DEFAULT_BACKEND_IP) {
   const raw = String(ipOrUrl || "").trim();

@@ -1,43 +1,49 @@
 const express = require("express");
 const cors = require("cors");
+const http = require("http");
+const WebSocket = require("ws");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 const PORT = 4000;
-///am adaugat comentariu pt a putea testa push-ul in git
 
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"]
-}));
+console.log("SERVER FILE VERSION: FLIGHT LOG ENABLED");
 
-app.use(express.json());
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(204);
-  }
-  next();
-});
+const LOG_FILE = path.join(__dirname, "flight_log.json");
+
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "OPTIONS", "DELETE"],
+    allowedHeaders: ["Content-Type"],
+  })
+);
+
+app.use(express.json({ limit: "2mb" }));
 
 let latestEspPayload = null;
-let currentTotalmAh = 142.0;
 let ioHistory = [];
+
+function generateTimestamp() {
+  return new Date().toLocaleTimeString("ro-RO");
+}
+
+function generateIsoTimestamp() {
+  return new Date().toISOString();
+}
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function randomBetween(min, max, decimals = 0) {
-  const value = Math.random() * (max - min) + min;
-  return Number(value.toFixed(decimals));
-}
-
-function generateTimestamp() {
-  return new Date().toLocaleTimeString("ro-RO");
+function signalLevelFromRSSI(rssi) {
+  if (rssi > -55) return "Excelent";
+  if (rssi > -67) return "Bun";
+  return "Slab";
 }
 
 function pushIoLog(message) {
@@ -51,179 +57,102 @@ function pushIoLog(message) {
   }
 }
 
-function signalLevelFromRSSI(rssi) {
-  if (rssi > -55) return "Excelent";
-  if (rssi > -67) return "Bun";
-  return "Slab";
+function readFlightLog() {
+  try {
+    if (!fs.existsSync(LOG_FILE)) return [];
+
+    const text = fs.readFileSync(LOG_FILE, "utf8");
+    if (!text.trim()) return [];
+
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.log("Flight log read error:", err.message);
+    return [];
+  }
 }
 
-function logIncomingEspData(raw) {
-  const lRaw = Number(raw.lRaw ?? 0);
-  const tRaw = Number(raw.tRaw ?? 0);
-  const vRaw = Number(raw.vRaw ?? 0);
-  const iRaw = Number(raw.iRaw ?? 0);
+function writeFlightLog(data) {
+  fs.writeFileSync(LOG_FILE, JSON.stringify(data, null, 2));
+}
 
-  const parts = [
-    `LDR=${lRaw}`,
-    `NTC=${tRaw}`,
-    `V=${vRaw.toFixed(2)}V`,
-    `I=${iRaw.toFixed(1)}mA`,
-  ];
+function appendFlightLog(entry) {
+  const log = readFlightLog();
 
-  if (typeof raw.btnNext !== "undefined") {
-    parts.push(`BTN_NEXT=${raw.btnNext}`);
-  }
+  log.push(entry);
 
-  if (typeof raw.btnPrev !== "undefined") {
-    parts.push(`BTN_PREV=${raw.btnPrev}`);
-  }
+  const trimmed = log.slice(-5000);
 
-  pushIoLog(parts.join(", "));
+  writeFlightLog(trimmed);
 }
 
 function buildResponseFromEsp(raw) {
-  const lRaw = Number(raw.lRaw ?? 0);
-  const tRaw = Number(raw.tRaw ?? 0);
-  const vRaw = Number(raw.vRaw ?? 0);
-  const iRaw = Number(raw.iRaw ?? 0);
+  const physiology = raw.physiology || {};
+  const motion = raw.motion || {};
+  const ai = raw.ai || {};
+  const system = raw.system || {};
+  const wireless = raw.wireless || {};
+  const wearable = raw.wearable || {};
 
-  const luxValue = Math.round(((255 - lRaw) / 255) * 1000);
-  const temperatureValue = Number((19.5 + (235 - tRaw) * 0.3).toFixed(1));
-  const voltageValue = Number(vRaw.toFixed(2));
-  const currentNowValue = Number(iRaw.toFixed(1));
+  const bpm = Number(physiology.bpm ?? 0);
+  const spo2 = Number(physiology.spo2 ?? 0);
+  const bodyTemperature = Number(physiology.bodyTemperature ?? 0);
+  const stressLevel = physiology.stressLevel || "NORMAL";
 
-  currentTotalmAh += currentNowValue / 3600;
-  currentTotalmAh = Number(currentTotalmAh.toFixed(2));
-
-  const batteryPercent = clamp(
-    Math.round(((voltageValue - 3.3) / (4.2 - 3.3)) * 100),
-    0,
-    100
+  const voltage = Number(system.voltage?.value ?? 3.7);
+  const currentNow = Number(system.currentNow?.value ?? 0);
+  const batteryPercent = Number(
+    system.battery?.percent ?? wearable.battery ?? 0
   );
-
-  const estimatedLifeHours =
-    currentNowValue > 1
-      ? Number((2000 / currentNowValue).toFixed(1))
-      : 0;
-
-  const rssi =
-    typeof raw.rssi === "number"
-      ? raw.rssi
-      : randomBetween(-72, -45, 0);
-
-  const cpuLoad =
-    typeof raw.cpuLoad === "number"
-      ? Number(raw.cpuLoad.toFixed(1))
-      : randomBetween(12, 24, 1);
-
-  const ssid = raw.ssid || "--";
-  const ip = raw.ip || "--";
-  const mac = raw.mac || "--";
-  const connected =
-    typeof raw.connected === "boolean" ? raw.connected : true;
+  const cpuLoad = Number(system.cpuLoad?.value ?? 0);
+  const rssi = Number(wireless.rssi?.value ?? -70);
 
   return {
     timestamp: generateTimestamp(),
+    isoTimestamp: generateIsoTimestamp(),
 
-    temperature: {
-      value: temperatureValue,
-      unit: "°C",
+    wearable: {
+      status: wearable.status || ai.alert || "SAFE",
+      battery: batteryPercent,
+      connection: wearable.connection || "online",
     },
 
-    light: {
-      value: luxValue,
-      unit: "lx",
+    physiology: {
+      bpm,
+      spo2,
+      bodyTemperature,
+      stressLevel,
     },
 
-    ioLog: ioHistory,
+    motion: {
+      accX: Number(motion.accX ?? 0),
+      accY: Number(motion.accY ?? 0),
+      accZ: Number(motion.accZ ?? 0),
+
+      gyroX: Number(motion.gyroX ?? 0),
+      gyroY: Number(motion.gyroY ?? 0),
+      gyroZ: Number(motion.gyroZ ?? 0),
+
+      accTotal: Number(motion.accTotal ?? 0),
+
+      parachuteOpened: Boolean(motion.parachuteOpened),
+      positionChanged: Boolean(motion.positionChanged),
+      freeFallRisk: Boolean(motion.freeFallRisk),
+      excessiveRotation: Boolean(motion.excessiveRotation),
+      noMovement: Boolean(motion.noMovement),
+    },
+
+    ai: {
+      riskScore: Number(ai.riskScore ?? 0),
+      prediction: ai.prediction || "normal",
+      alert: ai.alert || wearable.status || "SAFE",
+    },
 
     wireless: {
-      connected,
-      ssid,
-      ip,
-      mac,
-      rssi: {
-        value: rssi,
-        unit: "dBm",
-      },
-      signalLevel: signalLevelFromRSSI(rssi),
-    },
-
-    system: {
-      cpuLoad: {
-        value: cpuLoad,
-        unit: "%",
-      },
-    },
-
-    power: {
-      voltage: {
-        value: voltageValue,
-        unit: "V",
-      },
-      currentNow: {
-        value: currentNowValue,
-        unit: "mA",
-      },
-      currentTotal: {
-        value: currentTotalmAh,
-        unit: "mAh",
-      },
-      battery: {
-        capacity: 2000,
-        capacityUnit: "mAh",
-        percent: batteryPercent,
-        estimatedLife: {
-          value: estimatedLifeHours,
-          unit: "h",
-        },
-      },
-    },
-  };
-}
-
-function buildFallbackResponse() {
-  const temperature = randomBetween(23.4, 26.8, 1);
-  const light = randomBetween(380, 820, 0);
-  const rssi = randomBetween(-72, -45, 0);
-  const cpuLoad = randomBetween(18, 64, 1);
-  const voltage = randomBetween(3.72, 4.18, 2);
-  const currentNow = randomBetween(62, 128, 0);
-
-  currentTotalmAh += currentNow / 3600;
-  currentTotalmAh = Number(currentTotalmAh.toFixed(2));
-
-  const batteryCapacitymAh = 2000;
-  const estimatedBatteryLifeHours = Number(
-    (batteryCapacitymAh / currentNow).toFixed(1)
-  );
-
-  const batteryPercent = clamp(
-    Math.round(((voltage - 3.3) / (4.2 - 3.3)) * 100),
-    0,
-    100
-  );
-
-  return {
-    timestamp: generateTimestamp(),
-
-    temperature: {
-      value: temperature,
-      unit: "°C",
-    },
-
-    light: {
-      value: light,
-      unit: "lx",
-    },
-
-    ioLog: ioHistory,
-
-    wireless: {
-      connected: true,
-      ssid: "--",
-      ip: "--",
-      mac: "--",
+      connected: Boolean(wireless.connected ?? true),
+      ssid: wireless.ssid || "--",
+      ip: wireless.ip || "--",
+      mac: wireless.mac || "--",
       rssi: {
         value: rssi,
         unit: "dBm",
@@ -247,51 +176,163 @@ function buildFallbackResponse() {
         value: currentNow,
         unit: "mA",
       },
-      currentTotal: {
-        value: currentTotalmAh,
-        unit: "mAh",
-      },
       battery: {
-        capacity: batteryCapacitymAh,
+        capacity: 2000,
         capacityUnit: "mAh",
-        percent: batteryPercent,
+        percent: clamp(batteryPercent, 0, 100),
         estimatedLife: {
-          value: estimatedBatteryLifeHours,
+          value: currentNow > 1 ? Number((2000 / currentNow).toFixed(1)) : 0,
           unit: "h",
         },
       },
     },
+
+    ioLog: ioHistory,
   };
 }
 
+function buildFallbackResponse() {
+  return {
+    timestamp: generateTimestamp(),
+    isoTimestamp: generateIsoTimestamp(),
+
+    wearable: {
+      status: "OFFLINE",
+      battery: 0,
+      connection: "offline",
+    },
+
+    physiology: {
+      bpm: 0,
+      spo2: 0,
+      bodyTemperature: 0,
+      stressLevel: "NO DATA",
+    },
+
+    motion: {
+      accX: 0,
+      accY: 0,
+      accZ: 0,
+
+      gyroX: 0,
+      gyroY: 0,
+      gyroZ: 0,
+
+      accTotal: 0,
+
+      parachuteOpened: false,
+      positionChanged: false,
+      freeFallRisk: false,
+      excessiveRotation: false,
+      noMovement: false,
+    },
+
+    ai: {
+      riskScore: 0,
+      prediction: "waiting for ESP / phone bridge",
+      alert: "OFFLINE",
+    },
+
+    wireless: {
+      connected: false,
+      ssid: "--",
+      ip: "--",
+      mac: "--",
+      rssi: {
+        value: -127,
+        unit: "dBm",
+      },
+      signalLevel: "Offline",
+    },
+
+    system: {
+      cpuLoad: {
+        value: 0,
+        unit: "%",
+      },
+    },
+
+    power: {
+      voltage: {
+        value: 0,
+        unit: "V",
+      },
+      currentNow: {
+        value: 0,
+        unit: "mA",
+      },
+      battery: {
+        capacity: 2000,
+        capacityUnit: "mAh",
+        percent: 0,
+        estimatedLife: {
+          value: 0,
+          unit: "h",
+        },
+      },
+    },
+
+    ioLog: ioHistory,
+  };
+}
+
+function broadcastData(payload) {
+  const message = JSON.stringify(payload);
+
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
+
+wss.on("connection", (ws) => {
+  console.log("WebSocket client connected");
+
+  const payload = latestEspPayload
+    ? buildResponseFromEsp(latestEspPayload)
+    : buildFallbackResponse();
+
+  ws.send(JSON.stringify(payload));
+
+  ws.on("close", () => {
+    console.log("WebSocket client disconnected");
+  });
+});
+
 app.get("/", (req, res) => {
-  res.send("ESP backend running");
+  res.send("ESP wearable backend running - flight log enabled");
+});
+
+app.get("/api/esp-update", (req, res) => {
+  res.send("ESP endpoint OK. Use POST.");
 });
 
 app.post("/api/esp-update", (req, res) => {
-  const { lRaw, tRaw, vRaw, iRaw } = req.body || {};
-
-  if (
-    lRaw === undefined ||
-    tRaw === undefined ||
-    vRaw === undefined ||
-    iRaw === undefined
-  ) {
-    console.log("POST INVALID /api/esp-update");
-    console.log(req.body);
-
-    return res.status(400).json({
-      ok: false,
-      error: "Payload invalid",
-      received: req.body,
-    });
-  }
-
   latestEspPayload = req.body;
-  logIncomingEspData(req.body);
 
-  console.log("ESP UPDATE RECEIVED:");
-  console.log(JSON.stringify(latestEspPayload, null, 2));
+  const normalized = buildResponseFromEsp(latestEspPayload);
+
+  const bpm = normalized.physiology.bpm;
+  const spo2 = normalized.physiology.spo2;
+  const risk = normalized.ai.riskScore;
+  const alert = normalized.ai.alert;
+
+  pushIoLog(
+    `ESP update: BPM=${bpm}, SpO2=${spo2}, Risk=${risk}, Alert=${alert}`
+  );
+
+  const logEntry = {
+    ...normalized,
+    logId: Date.now(),
+  };
+
+  appendFlightLog(logEntry);
+  broadcastData(normalized);
+
+  console.log(
+    `ESP UPDATE RECEIVED: BPM=${bpm}, SpO2=${spo2}, Risk=${risk}, Alert=${alert}`
+  );
 
   res.json({
     ok: true,
@@ -307,6 +348,39 @@ app.get("/api/data", (req, res) => {
   return res.json(buildResponseFromEsp(latestEspPayload));
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Backend running on http://0.0.0.0:${PORT}`);
+app.get("/api/flight-log", (req, res) => {
+  const log = readFlightLog();
+
+  res.json({
+    ok: true,
+    count: log.length,
+    data: log,
+  });
+});
+
+app.delete("/api/flight-log", (req, res) => {
+  writeFlightLog([]);
+
+  res.json({
+    ok: true,
+    message: "Flight log cleared",
+  });
+});
+app.post("/api/flight-log-upload", (req, res) => {
+  const samples = Array.isArray(req.body.samples) ? req.body.samples : [];
+
+  for (const sample of samples) {
+    appendFlightLog({
+      ...sample,
+      logId: Date.now() + Math.random(),
+    });
+  }
+
+  res.json({
+    ok: true,
+    received: samples.length,
+  });
+});
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Backend + WebSocket running on http://0.0.0.0:${PORT}`);
 });
